@@ -128,7 +128,7 @@ func (r *ReconcileTimezones) Reconcile(request reconcile.Request) (reconcile.Res
 				e = err
 			}
 			// Update the wallclock time, :
-			wc.Status.Time = convertTime(instance.Spec.Clocks[0])
+			wc.Status.Time = convertTime(wc.Spec.Timezone)
 			if wc.Status.Time == "" {
 				return reconcile.Result{}, err
 			}
@@ -177,17 +177,16 @@ func createWallclock(cr *clockv1.Timezones) []*clockv1.Wallclock {
 func convertTime(ctime string) string {
 	log.Info("COVERTING TO", "Wallclock.timezone", ctime)
 	var stringToReturn string
-	t := time.Now()
+	loc, err := time.LoadLocation(ctime)
+	if err != nil {
+		fmt.Println(err)
+		return ""
+	}
 	getTz()
 	for _, tz := range tzdata {
 		if tz == ctime {
 			log.Info("Timezone is", "valid", ctime)
-			loc, err := time.LoadLocation(ctime)
-			if err != nil {
-				fmt.Println(err)
-				return ""
-			}
-			t.In(loc)
+			t := time.Now().In(loc)
 			stringToReturn = fmt.Sprintf("%02d:%02d:%02d", t.Hour(), t.Minute(), t.Second())
 			log.Info("CONVERTED TO ", "TZ", ctime)
 		}
