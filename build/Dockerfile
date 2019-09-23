@@ -1,4 +1,6 @@
-FROM registry.access.redhat.com/ubi7/ubi-minimal:latest
+FROM alpine:latest
+
+RUN apk add tzdata
 
 ENV OPERATOR=/usr/local/bin/wallclock-operator \
     USER_UID=1001 \

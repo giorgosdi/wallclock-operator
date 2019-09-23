@@ -2,7 +2,10 @@ package timezones
 
 import (
 	"context"
+	"fmt"
+	"io/ioutil"
 	"strings"
+	"time"
 
 	clockv1 "github.com/giorgosdi/wallclock-operator/pkg/apis/clock/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -84,7 +87,6 @@ type ReconcileTimezones struct {
 func (r *ReconcileTimezones) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling Timezones")
-
 	// Fetch the Timezones instance
 	instance := &clockv1.Timezones{}
 	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
@@ -112,22 +114,26 @@ func (r *ReconcileTimezones) Reconcile(request reconcile.Request) (reconcile.Res
 	err = r.client.Get(context.TODO(), types.NamespacedName{Name: wallclock.Name, Namespace: wallclock.Namespace}, found)
 	if err != nil && errors.IsNotFound(err) {
 		reqLogger.Info("Creating a new Wallclock", "Wallclock.Namespace", wallclock.Namespace, "Wallclock.Name", wallclock.Name)
+		reqLogger.Info("Update wallclock to ", "Timezone.Spec", instance.Spec)
+		reqLogger.Info("1st timezone ", "Timezone.Spec.clock", instance.Spec.Clocks[0])
 		err = r.client.Create(context.TODO(), wallclock)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
+		// Update the wallclock time, :
+		wallclock.Status.Time = convertTime(instance.Spec.Clocks[0])
+		if wallclock.Status.Time == "" {
+			return reconcile.Result{}, err
+		}
+		err = r.client.Status().Update(context.Background(), wallclock)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		reqLogger.WithValues("wallclock status", wallclock.Status.Time)
 
 		// Wallclock created successfully - don't requeue
 		return reconcile.Result{}, nil
 	} else if err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// Update the wallclock time, :
-
-	wallclock.Status.Time = "13.00.00"
-	err = r.client.Status().Update(context.Background(), wallclock)
-	if err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -149,5 +155,54 @@ func createWallclock(cr *clockv1.Timezones) *clockv1.Wallclock {
 		Spec: clockv1.WallclockSpec{
 			Timezone: cr.Spec.Clocks[0],
 		},
+	}
+}
+
+func convertTime(ctime string) string {
+	log.Info("COVERTING TO", "Wallclock.timezone", ctime)
+	var stringToReturn string
+	t := time.Now()
+	getTz()
+	for _, tz := range tzdata {
+		if tz == ctime {
+			log.Info("Timezone is", "valid", ctime)
+			loc, err := time.LoadLocation(ctime)
+			if err != nil {
+				fmt.Println(err)
+				return ""
+			}
+			t.In(loc)
+			stringToReturn = fmt.Sprintf("%02d:%02d:%02d", t.Hour(), t.Minute(), t.Second())
+			log.Info("CONVERTED TO ", "TZ", ctime)
+		}
+	}
+	return stringToReturn
+}
+
+var zoneDirs = []string{
+	"/usr/share/zoneinfo/",
+}
+
+var zoneDir string
+var tzdata []string
+
+func getTz() {
+	for _, zoneDir = range zoneDirs {
+		readFile("")
+	}
+}
+
+func readFile(path string) {
+
+	files, _ := ioutil.ReadDir(zoneDir + path)
+	for _, f := range files {
+		if f.Name() != strings.ToUpper(f.Name()[:1])+f.Name()[1:] {
+			continue
+		}
+		if f.IsDir() {
+			readFile(path + "/" + f.Name())
+		} else {
+			tzdata = append(tzdata, (path + "/" + f.Name())[1:])
+		}
 	}
 }
