@@ -87,6 +87,10 @@ type ReconcileTimezones struct {
 func (r *ReconcileTimezones) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling Timezones")
+
+	var rec reconcile.Result
+	var e error
+
 	// Fetch the Timezones instance
 	instance := &clockv1.Timezones{}
 	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
@@ -101,61 +105,73 @@ func (r *ReconcileTimezones) Reconcile(request reconcile.Request) (reconcile.Res
 		return reconcile.Result{}, err
 	}
 
-	// Define a new wallclock object
-	wallclock := createWallclock(instance)
-
-	// Set Timezones instance as the owner and controller
-	if err := controllerutil.SetControllerReference(instance, wallclock, r.scheme); err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// Check if this wallclock already exists
 	found := &clockv1.Wallclock{}
-	err = r.client.Get(context.TODO(), types.NamespacedName{Name: wallclock.Name, Namespace: wallclock.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		reqLogger.Info("Creating a new Wallclock", "Wallclock.Namespace", wallclock.Namespace, "Wallclock.Name", wallclock.Name)
-		reqLogger.Info("Update wallclock to ", "Timezone.Spec", instance.Spec)
-		reqLogger.Info("1st timezone ", "Timezone.Spec.clock", instance.Spec.Clocks[0])
-		err = r.client.Create(context.TODO(), wallclock)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-		// Update the wallclock time, :
-		wallclock.Status.Time = convertTime(instance.Spec.Clocks[0])
-		if wallclock.Status.Time == "" {
-			return reconcile.Result{}, err
-		}
-		err = r.client.Status().Update(context.Background(), wallclock)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-		reqLogger.WithValues("wallclock status", wallclock.Status.Time)
+	// Define a new wallclock object
+	wallclocks := createWallclock(instance)
 
-		// Wallclock created successfully - don't requeue
-		return reconcile.Result{}, nil
-	} else if err != nil {
-		return reconcile.Result{}, err
+	for _, wc := range wallclocks {
+		// Set Timezones instance as the owner and controller
+		if err := controllerutil.SetControllerReference(instance, wc, r.scheme); err != nil {
+			return reconcile.Result{}, err
+		}
+
+		// Check if this wallclock already exists
+
+		err = r.client.Get(context.TODO(), types.NamespacedName{Name: wc.Name, Namespace: wc.Namespace}, found)
+		if err != nil && errors.IsNotFound(err) {
+			reqLogger.Info("Creating a new Wallclock", "Wallclock.Namespace", wc.Namespace, "Wallclock.Name", wc.Name)
+			reqLogger.Info("Update wallclock to ", "Timezone.Spec", instance.Spec)
+			reqLogger.Info("1st timezone ", "Timezone.Spec.clock", instance.Spec.Clocks[0])
+			err = r.client.Create(context.TODO(), wc)
+			if err != nil {
+				rec = reconcile.Result{}
+				e = err
+			}
+			// Update the wallclock time, :
+			wc.Status.Time = convertTime(instance.Spec.Clocks[0])
+			if wc.Status.Time == "" {
+				return reconcile.Result{}, err
+			}
+			err = r.client.Status().Update(context.Background(), wc)
+			if err != nil {
+				rec = reconcile.Result{}
+				e = err
+			}
+			reqLogger.WithValues("wallclock status", wc.Status.Time)
+			rec = reconcile.Result{}
+			e = nil
+			// Wallclock created successfully - don't requeue
+		} else if err != nil {
+			rec = reconcile.Result{}
+			e = err
+		}
+
+		// Wallclock already exists - don't requeue
+		reqLogger.Info("Skip reconcile: Wallclock already exists", "Wallclock.Namespace", found.Namespace, "Wallclock.Name", found.Name)
+		rec = reconcile.Result{}
+		e = err
 	}
-
-	// Wallclock already exists - don't requeue
-	reqLogger.Info("Skip reconcile: Wallclock already exists", "Wallclock.Namespace", found.Namespace, "Wallclock.Name", found.Name)
-	return reconcile.Result{}, nil
+	return rec, e
 }
 
-func createWallclock(cr *clockv1.Timezones) *clockv1.Wallclock {
+func createWallclock(cr *clockv1.Timezones) []*clockv1.Wallclock {
+	var wallclocks []*clockv1.Wallclock
 	labels := map[string]string{
 		"app": cr.Name,
 	}
-	return &clockv1.Wallclock{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cr.Name + "-" + strings.ToLower(cr.Spec.Clocks[0]),
-			Namespace: cr.Namespace,
-			Labels:    labels,
-		},
-		Spec: clockv1.WallclockSpec{
-			Timezone: cr.Spec.Clocks[0],
-		},
+	for _, v := range cr.Spec.Clocks {
+		wallclocks = append(wallclocks, &clockv1.Wallclock{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cr.Name + "-" + strings.ToLower(v),
+				Namespace: cr.Namespace,
+				Labels:    labels,
+			},
+			Spec: clockv1.WallclockSpec{
+				Timezone: v,
+			},
+		})
 	}
+	return wallclocks
 }
 
 func convertTime(ctime string) string {

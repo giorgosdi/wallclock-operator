@@ -5,4 +5,6 @@ metadata:
 spec:
   clocks: 
     - GMT
+    - CET
+    - PST8PDT
   size: 3
