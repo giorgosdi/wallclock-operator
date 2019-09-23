@@ -1,0 +1,7 @@
+apiVersion: clock.giorgos.com/v1
+kind: Wallclock
+metadata:
+  name: example-wallclock
+spec:
+  # Add fields here
+  size: 3
