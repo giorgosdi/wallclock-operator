@@ -1,0 +1,11 @@
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: wallclock-operator
+subjects:
+- kind: ServiceAccount
+  name: wallclock-operator
+roleRef:
+  kind: Role
+  name: wallclock-operator
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,10 @@
+apiVersion: clock.giorgos.com/v1
+kind: Timezones
+metadata:
+  name: example-timezones
+spec:
+  clocks: 
+    - GMT
+    - CET
+    - PST8PDT
+  size: 3
